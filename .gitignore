@@ -6,4 +6,4 @@ __pycache__/
 
 data/raw/
 data/processed/
-data/chroma_db/
+data/chroma_db/.env
