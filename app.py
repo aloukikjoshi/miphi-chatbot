@@ -1,54 +1,64 @@
-from __future__ import annotations
-
 import streamlit as st
+from dotenv import load_dotenv
 
-from rag import MiPhiRAG
+from context_loader import load_context
+from llm_client import generate_answer
+from prompts import SYSTEM_PROMPT
 
-st.set_page_config(page_title="MiPhi Assistant", page_icon="💬", layout="centered")
+load_dotenv()
 
-st.title("MiPhi Public Website Assistant")
-st.caption("Text-only assistant for company and product information")
+st.set_page_config(
+    page_title="MiPhi Offline Assistant",
+    page_icon="💬",
+    layout="wide",
+)
 
-@st.cache_resource
-def load_rag() -> MiPhiRAG:
-    return MiPhiRAG()
+st.title("MiPhi Offline Website Assistant")
+st.caption("Local vLLM chatbot using direct context injection")
 
-rag = load_rag()
+with st.sidebar:
+    st.subheader("Runtime Notes")
+    st.write("- Model runs locally through vLLM")
+    st.write("- No vector database is used")
+    st.write("- Answers depend on `data/company_context.txt`")
+    st.write("- Offline after the first model download")
 
 if "messages" not in st.session_state:
-    st.session_state.messages = [
-        {
-            "role": "assistant",
-            "content": (
-                "Hi, I can help you explore MiPhi products, company information, use cases, "
-                "and public support details."
-            ),
-        }
-    ]
+    st.session_state.messages = []
 
-for message in st.session_state.messages:
-    with st.chat_message(message["role"]):
-        st.markdown(message["content"])
+for msg in st.session_state.messages:
+    with st.chat_message(msg["role"]):
+        st.markdown(msg["content"])
 
-query = st.chat_input("Ask about products, company info, or use cases")
+user_query = st.chat_input("Ask about MiPhi products, use cases, or support...")
 
-if query:
-    st.session_state.messages.append({"role": "user", "content": query})
+if user_query:
+    st.session_state.messages.append({"role": "user", "content": user_query})
 
     with st.chat_message("user"):
-        st.markdown(query)
+        st.markdown(user_query)
+
+    with st.spinner("Loading local context and generating response..."):
+        company_context = load_context()
+
+        if not company_context:
+            answer = (
+                "The local company context file is empty. "
+                "Please add MiPhi public information into `data/company_context.txt`."
+            )
+        else:
+            user_prompt = f"""
+Company Context:
+{company_context}
+
+User Question:
+{user_query}
+
+Answer using only the company context above.
+"""
+            answer = generate_answer(SYSTEM_PROMPT, user_prompt)
 
     with st.chat_message("assistant"):
-        with st.spinner("Thinking..."):
-            answer, hits = rag.answer(query=query, history=st.session_state.messages[:-1], k=4)
-
         st.markdown(answer)
-
-        if hits:
-            with st.expander("Sources"):
-                for i, hit in enumerate(hits, start=1):
-                    st.write(f"**Source {i}:** {hit.title}")
-                    st.write(hit.source)
-                    st.write(hit.text[:500] + ("..." if len(hit.text) > 500 else ""))
 
     st.session_state.messages.append({"role": "assistant", "content": answer})

@@ -1,9 +1,5 @@
 streamlit
-vllm
-sentence-transformers
-requests
-beautifulsoup4
-pypdf
+openai
 python-dotenv
-lxml
-numpy
+huggingface_hub
+requests
