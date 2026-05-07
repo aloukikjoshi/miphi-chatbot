@@ -1,30 +1,20 @@
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
-from urllib import response
 
-import chromadb
-import requests
+import numpy as np
 from sentence_transformers import SentenceTransformer
-
-from groq import Groq
-import os
-
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-
-client = Groq(api_key=GROQ_API_KEY)
+from vllm import LLM, SamplingParams
 
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
-CHROMA_DIR = DATA_DIR / "chroma_db"
+KV_CACHE_PATH = DATA_DIR / "kv_cache.json"
 
-COLLECTION_NAME = os.getenv("CHROMA_COLLECTION", "miphi_public_knowledge")
 EMBED_MODEL_NAME = os.getenv("EMBED_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
-OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.1:8b")
+VLLM_MODEL_PATH = os.getenv("VLLM_MODEL_PATH", "llama3-8b")
 
 
 @dataclass
@@ -33,72 +23,82 @@ class SearchHit:
     source: str
     title: str
     chunk_id: str
-    distance: float | None = None
+    score: float | None = None
 
 
 class MiPhiRAG:
     def __init__(self) -> None:
         DATA_DIR.mkdir(parents=True, exist_ok=True)
-        CHROMA_DIR.mkdir(parents=True, exist_ok=True)
 
-        self.client = chromadb.PersistentClient(path=str(CHROMA_DIR))
-        self.collection = self.client.get_or_create_collection(name=COLLECTION_NAME)
         self.embedder = SentenceTransformer(EMBED_MODEL_NAME)
+        self.kv_cache_file = KV_CACHE_PATH
+        self.kv_items = self._load_kv_cache()
+
+        self.llm = LLM(model=VLLM_MODEL_PATH)
+
+    def _load_kv_cache(self) -> list[dict]:
+        if self.kv_cache_file.exists():
+            return json.loads(self.kv_cache_file.read_text(encoding="utf-8"))
+        return []
+
+    def _save_kv_cache(self) -> None:
+        self.kv_cache_file.write_text(json.dumps(self.kv_items, indent=2), encoding="utf-8")
 
     def embed_texts(self, texts: list[str]) -> list[list[float]]:
         vectors = self.embedder.encode(texts, normalize_embeddings=True)
         return vectors.tolist()
 
-    def add_chunks(self, chunks: list[dict[str, Any]]) -> None:
+    def add_chunks(self, chunks: list[dict[str, object]]) -> None:
         if not chunks:
             return
 
-        ids = [c["id"] for c in chunks]
-        docs = [c["text"] for c in chunks]
-        metas = [
-            {
-                "source": c.get("source", ""),
-                "title": c.get("title", ""),
-                "url": c.get("url", ""),
-                "chunk_index": str(c.get("chunk_index", 0)),
-            }
-            for c in chunks
-        ]
-        embeddings = self.embed_texts(docs)
+        texts = [c["text"] for c in chunks]
+        embeddings = self.embed_texts(texts)
 
-        self.collection.upsert(
-            ids=ids,
-            documents=docs,
-            metadatas=metas,
-            embeddings=embeddings,
-        )
+        for chunk, embedding in zip(chunks, embeddings):
+            self.kv_items.append(
+                {
+                    "id": chunk["id"],
+                    "text": chunk["text"],
+                    "title": chunk["title"],
+                    "source": chunk.get("source", ""),
+                    "url": chunk.get("url", ""),
+                    "chunk_index": chunk.get("chunk_index", 0),
+                    "embedding": embedding,
+                }
+            )
+
+        self._save_kv_cache()
 
     def search(self, query: str, k: int = 4) -> list[SearchHit]:
-        query_embedding = self.embed_texts([query])[0]
-        result = self.collection.query(
-            query_embeddings=[query_embedding],
-            n_results=k,
-            include=["documents", "metadatas", "distances"],
-        )
+        if not self.kv_items:
+            return []
 
+        query_vector = np.array(self.embed_texts([query])[0], dtype=np.float32)
+        embeddings = np.array([item["embedding"] for item in self.kv_items], dtype=np.float32)
+        scores = embeddings @ query_vector
+        norms = np.linalg.norm(embeddings, axis=1) * np.linalg.norm(query_vector)
+        norms = np.where(norms == 0.0, 1e-8, norms)
+        similarities = (scores / norms).tolist()
+
+        best_indexes = sorted(range(len(similarities)), key=lambda i: similarities[i], reverse=True)[:k]
         hits: list[SearchHit] = []
-        documents = result.get("documents", [[]])[0]
-        metadatas = result.get("metadatas", [[]])[0]
-        distances = result.get("distances", [[]])[0]
 
-        for doc, meta, dist in zip(documents, metadatas, distances):
+        for idx in best_indexes:
+            item = self.kv_items[idx]
             hits.append(
                 SearchHit(
-                    text=doc or "",
-                    source=(meta or {}).get("url", ""),
-                    title=(meta or {}).get("title", ""),
-                    chunk_id="",
-                    distance=float(dist) if dist is not None else None,
+                    text=item["text"],
+                    source=item.get("url", ""),
+                    title=item.get("title", ""),
+                    chunk_id=item["id"],
+                    score=float(similarities[idx]),
                 )
             )
+
         return hits
 
-    def build_messages(self, query: str, history: list[dict[str, str]], hits: list[SearchHit]) -> list[dict[str, str]]:
+    def build_prompt(self, query: str, history: list[dict[str, str]], hits: list[SearchHit]) -> str:
         context_blocks = []
         for i, hit in enumerate(hits, start=1):
             context_blocks.append(
@@ -106,43 +106,37 @@ class MiPhiRAG:
             )
 
         context_text = "\n\n".join(context_blocks) if context_blocks else "No relevant public context found."
-
-        system_prompt = (
-            "You are MiPhi's public website assistant.\n"
-            "Answer using ONLY the provided context and public company/product information.\n"
-            "Keep responses concise, friendly, and helpful.\n"
-            "Use a marketing-friendly tone without being pushy.\n"
-            "If the context is insufficient, say you do not have enough public information and suggest contacting MiPhi support.\n"
-            "Never reveal private, internal, confidential, or speculative information.\n"
-            "When useful, summarize product benefits, use cases, and differences clearly."
+        history_text = "\n".join(
+            f"{turn['role'].capitalize()}: {turn['content']}"
+            for turn in history[-6:]
+            if turn["role"] in {"user", "assistant"}
         )
 
-        messages: list[dict[str, str]] = [{"role": "system", "content": system_prompt}]
+        return (
+            "You are MiPhi's public website assistant. Answer using only the public context below. "
+            "If the context is insufficient, say you do not have enough public information and suggest contacting MiPhi support. "
+            "Keep responses concise, friendly, and helpful."
+            "\n\n"
+            f"{history_text}\n\n"
+            f"Question: {query}\n\n"
+            f"Relevant public context:\n{context_text}\n\n"
+            "Answer:"
+        )
 
-        # Keep short conversation memory
-        for turn in history[-6:]:
-            if turn["role"] in {"user", "assistant"}:
-                messages.append({"role": turn["role"], "content": turn["content"]})
+    def chat(self, query: str, history: list[dict[str, str]], hits: list[SearchHit]) -> str:
+        prompt = self.build_prompt(query=query, history=history, hits=hits)
+        sampling_params = SamplingParams(temperature=0.2, max_tokens=512, top_p=0.95)
 
-        messages.append(
+        request = [
             {
-                "role": "user",
-                "content": (
-                    f"Question: {query}\n\n"
-                    f"Relevant public context:\n{context_text}\n\n"
-                    "Write the best answer based on the context."
-                ),
+                "id": "miphi",
+                "prompt": prompt,
+                "sampling_params": sampling_params,
             }
-        )
-        return messages
-    
-    def chat(self, messages):
-        response = client.chat.completions.create(
-            model="llama3-8b-8192",
-            messages=messages,
-            temperature=0.2,
-            )
-        return response.choices[0].message.content
+        ]
+
+        outputs = self.llm.generate(request)
+        return outputs[0].outputs[0].text.strip()
 
     def answer(self, query: str, history: list[dict[str, str]] | None = None, k: int = 4) -> tuple[str, list[SearchHit]]:
         history = history or []
@@ -155,14 +149,12 @@ class MiPhiRAG:
                 [],
             )
 
-        messages = self.build_messages(query=query, history=history, hits=hits)
-
         try:
-            answer = self.chat(messages)
-        except requests.RequestException as exc:
+            answer = self.chat(query=query, history=history, hits=hits)
+        except Exception as exc:
             answer = (
-                f"I could not reach the local model runtime right now ({exc}). "
-                "Please make sure Ollama is running and try again."
+                f"I could not generate a local response right now ({exc}). "
+                "Please make sure your local vLLM model is available and try again."
             )
 
         return answer, hits

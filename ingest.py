@@ -117,7 +117,7 @@ def build_chunks_from_url(url: str) -> list[dict]:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Ingest MiPhi public pages into Chroma.")
+    parser = argparse.ArgumentParser(description="Ingest MiPhi public pages into local KV cache.")
     parser.add_argument(
         "--sources",
         type=str,
@@ -152,7 +152,7 @@ def main() -> None:
         return
 
     rag.add_chunks(all_chunks)
-    print(f"Done. Indexed {len(all_chunks)} chunks into Chroma.")
+    print(f"Done. Indexed {len(all_chunks)} chunks into local KV cache.")
 
 
 if __name__ == "__main__":

@@ -1,8 +1,9 @@
 streamlit
-chromadb
+vllm
 sentence-transformers
 requests
 beautifulsoup4
 pypdf
 python-dotenv
 lxml
+numpy
