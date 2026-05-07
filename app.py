@@ -7,6 +7,17 @@ from prompts import SYSTEM_PROMPT
 
 load_dotenv()
 
+
+def build_chat_history(messages, max_messages=6):
+    history = []
+    recent_messages = messages[-max_messages:]
+
+    for msg in recent_messages:
+        history.append(f"{msg['role'].capitalize()}: {msg['content']}")
+
+    return "\n".join(history)
+
+
 st.set_page_config(
     page_title="MiPhi Offline Assistant",
     page_icon="💬",
@@ -47,15 +58,24 @@ if user_query:
                 "Please add MiPhi public information into `data/company_context.txt`."
             )
         else:
+            chat_history = build_chat_history(st.session_state.messages)
+
             user_prompt = f"""
 Company Context:
 {company_context}
 
-User Question:
+Conversation History:
+{chat_history}
+
+Current User Question:
 {user_query}
 
-Answer using only the company context above.
+Instructions:
+- Use company context for MiPhi-specific answers
+- Use general technical knowledge when appropriate
+- Maintain conversation continuity
 """
+
             answer = generate_answer(SYSTEM_PROMPT, user_prompt)
 
     with st.chat_message("assistant"):
