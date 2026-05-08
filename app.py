@@ -1,8 +1,8 @@
 import streamlit as st
 from dotenv import load_dotenv
-
+import requests
 from context_loader import load_context
-from llm_client import generate_answer
+from llm_client import generate_answer_stream
 from prompts import SYSTEM_PROMPT
 
 load_dotenv()
@@ -10,10 +10,13 @@ load_dotenv()
 
 def build_chat_history(messages, max_messages=6):
     history = []
+
     recent_messages = messages[-max_messages:]
 
     for msg in recent_messages:
-        history.append(f"{msg['role'].capitalize()}: {msg['content']}")
+        history.append(
+            f"{msg['role'].capitalize()}: {msg['content']}"
+        )
 
     return "\n".join(history)
 
@@ -25,14 +28,33 @@ st.set_page_config(
 )
 
 st.title("MiPhi Offline Website Assistant")
-st.caption("Local vLLM chatbot using direct context injection")
+
+st.caption(
+    "Offline vLLM-powered semiconductor assistant"
+)
 
 with st.sidebar:
-    st.subheader("Runtime Notes")
-    st.write("- Model runs locally through vLLM")
-    st.write("- No vector database is used")
-    st.write("- Answers depend on `data/company_context.txt`")
-    st.write("- Offline after the first model download")
+    st.divider()
+    st.subheader("Backend Status")
+    try:
+        response = requests.get(
+            "http://vllm:8000/health",
+            timeout=2
+        )
+
+        if response.status_code == 200:
+            st.success("vLLM Backend Connected")
+        else:
+            st.warning("Backend responding unexpectedly")
+    except:
+            st.error("vLLM Backend Not Reachable")
+    st.divider()
+    st.subheader("Suggested Questions")
+    st.write("• Hello")
+    st.write("• What does MiPhi do?")
+    st.write("• Explain SSDs")
+    st.write("• What is edge AI?")
+    st.write("• Explain embedded systems")
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
@@ -41,26 +63,29 @@ for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
-user_query = st.chat_input("Ask about MiPhi products, use cases, or support...")
+user_query = st.chat_input(
+    "Ask about MiPhi products or technology..."
+)
 
 if user_query:
-    st.session_state.messages.append({"role": "user", "content": user_query})
+
+    st.session_state.messages.append(
+        {
+            "role": "user",
+            "content": user_query
+        }
+    )
 
     with st.chat_message("user"):
         st.markdown(user_query)
 
-    with st.spinner("Loading local context and generating response..."):
-        company_context = load_context()
+    company_context = load_context()
 
-        if not company_context:
-            answer = (
-                "The local company context file is empty. "
-                "Please add MiPhi public information into `data/company_context.txt`."
-            )
-        else:
-            chat_history = build_chat_history(st.session_state.messages)
+    chat_history = build_chat_history(
+        st.session_state.messages
+    )
 
-            user_prompt = f"""
+    user_prompt = f"""
 Company Context:
 {company_context}
 
@@ -76,9 +101,26 @@ Instructions:
 - Maintain conversation continuity
 """
 
-            answer = generate_answer(SYSTEM_PROMPT, user_prompt)
-
     with st.chat_message("assistant"):
-        st.markdown(answer)
 
-    st.session_state.messages.append({"role": "assistant", "content": answer})
+        response_placeholder = st.empty()
+
+        full_response = ""
+
+        for chunk in generate_answer_stream(
+            SYSTEM_PROMPT,
+            user_prompt
+        ):
+
+            full_response += chunk
+
+            response_placeholder.markdown(
+                full_response
+            )
+
+    st.session_state.messages.append(
+        {
+            "role": "assistant",
+            "content": full_response
+        }
+    )
