@@ -7,7 +7,7 @@ load_dotenv()
 
 VLLM_BASE_URL = os.getenv(
     "VLLM_BASE_URL",
-    "http://host.docker.internal:8000/v1"
+    "http://vllm:8000/v1"
 )
 
 VLLM_MODEL = os.getenv(

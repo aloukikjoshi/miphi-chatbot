@@ -1,5 +1,38 @@
 services:
 
+  vllm:
+
+    build:
+      context: .
+      dockerfile: Dockerfile.vllm
+
+    container_name: miphi-vllm
+
+    command: >
+      --model meta-llama/Llama-3.2-1B-Instruct
+      --dtype half
+      --max-model-len 4096
+      --gpu-memory-utilization 0.75
+      --enforce-eager
+
+    environment:
+      - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN}
+
+    ports:
+      - "8000:8000"
+
+    ipc: host
+
+    volumes:
+      - huggingface-cache:/root/.cache/huggingface
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              capabilities: [gpu]
+
   chatbot:
 
     build:
@@ -8,9 +41,12 @@ services:
 
     container_name: miphi-chatbot
 
+    depends_on:
+      - vllm
+
     environment:
-      - VLLM_BASE_URL=http://host.docker.internal:8000/v1
-      - VLLM_MODEL=${APP_MODEL}
+      - VLLM_BASE_URL=http://vllm:8000/v1
+      - VLLM_MODEL=meta-llama/Llama-3.2-1B-Instruct
 
     ports:
       - "8501:8501"
@@ -18,7 +54,5 @@ services:
     volumes:
       - .:/app
 
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-
-    restart: unless-stopped
+volumes:
+  huggingface-cache:
