@@ -1,8 +1,7 @@
 import os
+
 from dotenv import load_dotenv
 from openai import OpenAI
-from openai import APIConnectionError
-from openai import APIStatusError
 
 load_dotenv()
 
@@ -23,60 +22,36 @@ client = OpenAI(
 
 
 def generate_answer_stream(
-    system_prompt: str,
-    user_prompt: str
+    system_prompt,
+    user_prompt
 ):
 
-    try:
+    stream = client.chat.completions.create(
+        model=VLLM_MODEL,
+        messages=[
+            {
+                "role": "system",
+                "content": system_prompt
+            },
+            {
+                "role": "user",
+                "content": user_prompt
+            }
+        ],
+        temperature=0.3,
+        max_tokens=512,
+        stream=True
+    )
 
-        stream = client.chat.completions.create(
-            model=VLLM_MODEL,
-            messages=[
-                {
-                    "role": "system",
-                    "content": system_prompt
-                },
-                {
-                    "role": "user",
-                    "content": user_prompt
-                },
-            ],
-            temperature=0.2,
-            stream=True,
-        )
+    for chunk in stream:
 
-        for chunk in stream:
+        if chunk.choices:
 
-            if chunk.choices:
+            delta = (
+                chunk
+                .choices[0]
+                .delta.content
+            )
 
-                delta = chunk.choices[0].delta.content
-
-                if delta:
-                    yield delta
-
-    except APIConnectionError:
-
-        yield (
-            "⚠️ Unable to connect to the local vLLM backend.\n\n"
-            "Possible reasons:\n"
-            "- vLLM container is still starting\n"
-            "- model is loading into memory\n"
-            "- backend service is not running\n"
-            "- incorrect VLLM_BASE_URL\n\n"
-            "Please wait a moment and try again."
-        )
-
-    except APIStatusError as e:
-
-        yield (
-            f"⚠️ Backend API error occurred.\n\n"
-            f"Status Code: {e.status_code}\n"
-            f"Message: {str(e)}"
-        )
-
-    except Exception as e:
-
-        yield (
-            f"⚠️ Unexpected error occurred:\n\n"
-            f"{str(e)}"
-        )
+            if delta:
+                yield delta
