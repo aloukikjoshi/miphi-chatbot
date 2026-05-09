@@ -1,62 +1,90 @@
 services:
+
   vllm_gpu:
+
     profiles: ["gpu"]
+
     image: vllm/vllm-openai:latest
+
     container_name: miphi-vllm-gpu
+
     gpus: all
+
     ipc: host
+
     environment:
       - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN}
-    command: >
-      --model ${APP_MODEL}
-      --dtype half
-      --max-model-len ${APP_MAX_MODEL_LEN}
-      --gpu-memory-utilization ${APP_GPU_MEM_UTIL}
-      --enforce-eager
+
+    command:
+      [
+        "--model",
+        "${APP_MODEL}",
+        "--dtype",
+        "half",
+        "--max-model-len",
+        "${APP_MAX_MODEL_LEN}",
+        "--gpu-memory-utilization",
+        "${APP_GPU_MEM_UTIL}",
+        "--enforce-eager"
+      ]
+
     ports:
       - "8000:8000"
+
     volumes:
       - huggingface-cache:/root/.cache/huggingface
+
     networks:
       default:
         aliases:
           - vllm
 
   vllm_cpu:
+
     profiles: ["cpu"]
-    image:
-      context: .
-      dockerfile: Dockerfile.vllm.cpu
+
+    image: vllm/vllm-openai-cpu:latest-x86_64
+
     container_name: miphi-vllm-cpu
+
     environment:
       - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN}
       - VLLM_CPU_KVCACHE_SPACE=${VLLM_CPU_KVCACHE_SPACE}
-    command: >
-      vllm serve ${APP_MODEL}
-      --dtype bfloat16
-      --max-model-len ${APP_MAX_MODEL_LEN}
-      --enforce-eager
+
+    command:
+      [
+        "${APP_MODEL}",
+        "--dtype",
+        "bfloat16",
+        "--max-model-len",
+        "${APP_MAX_MODEL_LEN}",
+        "--enforce-eager"
+      ]
+
     ports:
       - "8000:8000"
+
     volumes:
       - huggingface-cache:/root/.cache/huggingface
+
     networks:
       default:
         aliases:
           - vllm
 
   chatbot:
-    image:
-      context: .
-      dockerfile: Dockerfile.chatbot
+
+    image: aloukikjoshi/miphi-chatbot:latest
+
     container_name: miphi-chatbot
+
     environment:
       - VLLM_BASE_URL=http://vllm:8000/v1
       - VLLM_MODEL=${APP_MODEL}
+
     ports:
       - "8501:8501"
-    volumes:
-      - .:/app
+
     restart: unless-stopped
 
 volumes:
