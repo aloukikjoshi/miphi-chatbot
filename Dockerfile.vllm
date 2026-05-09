@@ -1,7 +1,0 @@
-FROM vllm/vllm-openai:latest
-
-WORKDIR /app
-
-ENV HF_HOME=/root/.cache/huggingface
-
-EXPOSE 8000
