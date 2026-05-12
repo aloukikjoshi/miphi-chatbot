@@ -1,6 +1,4 @@
 import re
-
-
 def score_chunk(
     query: str,
     chunk: str

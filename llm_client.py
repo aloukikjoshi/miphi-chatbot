@@ -1,7 +1,8 @@
 import os
 
 from dotenv import load_dotenv
-
+# Using the Open API client library for vLLM interaction
+# because of same request format, same endpoints and same JSON structure
 from openai import OpenAI
 from openai import APIConnectionError
 from openai import APIStatusError
@@ -44,10 +45,10 @@ def generate_answer_stream(
                 }
             ],
             temperature=0.3,
-            max_tokens=256,
+            max_tokens=256,  # Can be changed if question is complex and larger answer is needed
             stream=True
         )
-
+        # generating the streaming response and yielding chunks as they arrive
         for chunk in stream:
 
             if chunk.choices:

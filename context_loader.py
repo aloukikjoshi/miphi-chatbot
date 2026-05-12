@@ -23,7 +23,7 @@ def load_context_chunks():
     max_chunk_size = 1200
 
     paragraphs = raw_text.split("\n\n")
-
+    # Breaking the whole context file into paragraphs of 1200 characters and storing them in a list of chunks. This is to ensure that we don't exceed the token limit of the LLM when we pass the context
     for para in paragraphs:
 
         para = para.strip()
