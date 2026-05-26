@@ -43,7 +43,7 @@ services:
 
     profiles: ["cpu"]
 
-    image: vllm/vllm-openai-cpu:latest-x86_64
+    image: aloukikjoshi/vllm-openai-cpu:latest-x86_64
 
     container_name: miphi-vllm-cpu
 
