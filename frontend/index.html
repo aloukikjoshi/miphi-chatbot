@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MiPhi AI Assistant</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+<body class="auth-page">
+  <div class="auth-container">
+    <div class="auth-card">
+      <div class="auth-logo">
+        <div class="logo-icon">M</div>
+        <span class="logo-text">MiPhi<span class="logo-accent"> AI</span></span>
+      </div>
+      <p class="auth-subtitle">Offline semiconductor intelligence</p>
+      <div class="tab-bar" role="tablist">
+        <button id="tab-login" class="tab active" onclick="switchTab('login')">Login</button>
+        <button id="tab-register" class="tab" onclick="switchTab('register')">Register</button>
+      </div>
+      <div id="auth-message" class="auth-message hidden" role="alert"></div>
+      <form id="form-login" class="auth-form" onsubmit="handleLogin(event)" novalidate>
+        <div class="field-group">
+          <label for="login-username">Username</label>
+          <input id="login-username" type="text" placeholder="your_username" autocomplete="username" required />
+        </div>
+        <div class="field-group">
+          <label for="login-password">Password</label>
+          <input id="login-password" type="password" placeholder="••••••••" autocomplete="current-password" required />
+        </div>
+        <button type="submit" class="btn-primary" id="login-btn">
+          <span class="btn-label">Sign in</span>
+          <span class="btn-spinner hidden"></span>
+        </button>
+      </form>
+      <form id="form-register" class="auth-form hidden" onsubmit="handleRegister(event)" novalidate>
+        <div class="field-group">
+          <label for="reg-username">Username</label>
+          <input id="reg-username" type="text" placeholder="your_username" autocomplete="username" required minlength="3" />
+        </div>
+        <div class="field-group">
+          <label for="reg-email">Email</label>
+          <input id="reg-email" type="email" placeholder="you@example.com" autocomplete="email" required />
+        </div>
+        <div class="field-group">
+          <label for="reg-password">Password</label>
+          <input id="reg-password" type="password" placeholder="min. 8 characters" autocomplete="new-password" required minlength="8" />
+        </div>
+        <button type="submit" class="btn-primary" id="register-btn">
+          <span class="btn-label">Create account</span>
+          <span class="btn-spinner hidden"></span>
+        </button>
+      </form>
+    </div>
+  </div>
+  <script src="/js/auth.js"></script>
+</body>
+</html>

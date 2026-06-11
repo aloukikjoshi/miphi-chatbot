@@ -1,89 +1,65 @@
 import os
 
+import streamlit as st
 from dotenv import load_dotenv
-# Using the Open API client library for vLLM interaction
-# because of same request format, same endpoints and same JSON structure
-from openai import OpenAI
-from openai import APIConnectionError
-from openai import APIStatusError
+
+from langchain_openai import ChatOpenAI
+from langchain.chains import create_history_aware_retriever, create_retrieval_chain
+from langchain.chains.combine_documents import create_stuff_documents_chain
+
+from prompts import CONTEXTUALIZE_Q_PROMPT, QA_PROMPT
 
 load_dotenv()
 
-VLLM_BASE_URL = os.getenv(
-    "VLLM_BASE_URL",
-    "http://vllm:8000/v1"
-)
-
-VLLM_MODEL = os.getenv(
-    "VLLM_MODEL",
-    "meta-llama/Llama-3.2-1B-Instruct"
-)
-
-client = OpenAI(
-    base_url=VLLM_BASE_URL,
-    api_key="EMPTY"
-)
+VLLM_BASE_URL = os.getenv("VLLM_BASE_URL", "http://vllm:8000/v1")
+VLLM_MODEL = os.getenv("VLLM_MODEL", "meta-llama/Llama-3.2-1B-Instruct")
 
 
-def generate_answer_stream(
-    system_prompt,
-    user_prompt
-):
+@st.cache_resource(show_spinner="Connecting to LLM backend...")
+def get_llm():
+    """
+    Return a LangChain ChatOpenAI client pointing at the local vLLM backend.
+    Cached so the client object is reused across all Streamlit reruns.
+    """
+    return ChatOpenAI(
+        base_url=VLLM_BASE_URL,
+        api_key="EMPTY",
+        model=VLLM_MODEL,
+        temperature=0.3,
+        max_tokens=512,
+        streaming=True,
+    )
 
-    try:
 
-        stream = client.chat.completions.create(
-            model=VLLM_MODEL,
-            messages=[
-                {
-                    "role": "system",
-                    "content": system_prompt
-                },
-                {
-                    "role": "user",
-                    "content": user_prompt
-                }
-            ],
-            temperature=0.3,
-            max_tokens=256,  # Can be changed if question is complex and larger answer is needed
-            stream=True
-        )
-        # generating the streaming response and yielding chunks as they arrive
-        for chunk in stream:
+def get_rag_chain(retriever):
+    """
+    Assemble the full history-aware RAG chain:
 
-            if chunk.choices:
+    1. History-Aware Retriever
+       Uses CONTEXTUALIZE_Q_PROMPT to ask the LLM to rewrite the current
+       user question as a standalone question before retrieval.
+       Fixes pronoun/reference failures like
+       'What is its capacity?' -> 'What is the B100 SSD storage capacity?'
 
-                delta = (
-                    chunk
-                    .choices[0]
-                    .delta.content
-                )
+    2. Document-Stuffing QA Chain
+       Injects retrieved chunks as {context} into QA_PROMPT together with
+       the full alternating chat history, producing the final streamed answer.
 
-                if delta:
-                    yield delta
+    3. Retrieval Chain
+       Wires both sub-chains into a single callable that accepts
+       {'input': str, 'chat_history': list[BaseMessage]} and returns
+       {'answer': str, 'context': list[Document], ...}
+    """
+    llm = get_llm()
 
-    except APIConnectionError:
+    history_aware_retriever = create_history_aware_retriever(
+        llm, retriever, CONTEXTUALIZE_Q_PROMPT
+    )
 
-        yield (
-            "⚠️ Unable to connect to the vLLM backend.\n\n"
-            "Possible reasons:\n"
-            "- backend container crashed\n"
-            "- model still loading\n"
-            "- GPU unavailable\n"
-            "- Docker network issue\n\n"
-            "Please check backend logs."
-        )
+    question_answer_chain = create_stuff_documents_chain(llm, QA_PROMPT)
 
-    except APIStatusError as e:
+    rag_chain = create_retrieval_chain(
+        history_aware_retriever, question_answer_chain
+    )
 
-        yield (
-            f"Backend API error:\n\n"
-            f"{str(e)}"
-        )
-
-    except Exception as e:
-
-        yield (
-            f"Unexpected error:\n\n"
-            f"{str(e)}"
-        )
+    return rag_chain

@@ -1,57 +1,49 @@
-import re
-def score_chunk(
-    query: str,
-    chunk: str
-):
+import streamlit as st
+from pathlib import Path
 
-    query_words = re.findall(
-        r"\w+",
-        query.lower()
-    )
+from langchain_community.document_loaders import TextLoader
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_community.vectorstores import FAISS
 
-    chunk_lower = chunk.lower()
-
-    score = 0
-
-    for word in query_words:
-
-        if len(word) < 3:
-            continue
-
-        score += chunk_lower.count(word)
-
-    return score
+CONTEXT_FILE = Path("data/company_context.txt")
+EMBEDDING_MODEL = "all-MiniLM-L6-v2"
+CHUNK_SIZE = 600
+CHUNK_OVERLAP = 100
+TOP_K = 3
 
 
-def retrieve_relevant_chunks(
-    query: str,
-    chunks: list[str],
-    top_k: int = 3
-):
+@st.cache_resource(show_spinner="Building semantic index...")
+def get_retriever():
+    """
+    Load the company context document, split it into overlapping chunks,
+    embed with a local HuggingFace sentence-transformer model, and store
+    in an in-memory FAISS vector index.
 
-    scored = []
-
-    for chunk in chunks:
-
-        score = score_chunk(
-            query,
-            chunk
+    Decorated with @st.cache_resource so this runs exactly once per
+    Streamlit server process - no rebuilding on every page reload.
+    """
+    if not CONTEXT_FILE.exists():
+        raise FileNotFoundError(
+            f"Company context file not found at: {CONTEXT_FILE}"
         )
 
-        scored.append(
-            (score, chunk)
-        )
+    loader = TextLoader(str(CONTEXT_FILE), encoding="utf-8")
+    docs = loader.load()
 
-    scored.sort(
-        key=lambda x: x[0],
-        reverse=True
+    text_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=CHUNK_SIZE,
+        chunk_overlap=CHUNK_OVERLAP,
+    )
+    splits = text_splitter.split_documents(docs)
+
+    embeddings = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL)
+
+    vectorstore = FAISS.from_documents(splits, embeddings)
+
+    retriever = vectorstore.as_retriever(
+        search_type="similarity",
+        search_kwargs={"k": TOP_K},
     )
 
-    results = []
-
-    for score, chunk in scored[:top_k]:
-
-        if score > 0:
-            results.append(chunk)
-
-    return results
+    return retriever

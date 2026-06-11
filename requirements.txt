@@ -1,3 +1,29 @@
-streamlit
+# === Web Framework ===
+fastapi>=0.100.0
+uvicorn[standard]>=0.23.0
+python-multipart
+
+# === Database ===
+sqlalchemy[asyncio]>=2.0.0
+asyncpg>=0.29.0
+
+# === Auth ===
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.4
+bcrypt==4.0.1          # passlib 1.7.4 breaks with bcrypt >= 4.1 (no __about__)
+
+# === RAG / LLM ===
+langchain>=0.1.0
+langchain-community>=0.0.20
+langchain-openai>=0.0.5
+langchain-classic
+faiss-cpu
+sentence-transformers
 openai
+
+# === Utilities ===
 python-dotenv
+pydantic[email]
+
+# === Legacy (Streamlit UI kept for reference) ===
+# streamlit
