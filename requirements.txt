@@ -24,6 +24,7 @@ openai
 # === Utilities ===
 python-dotenv
 pydantic[email]
+python-json-logger>=2.0.0
 
 # === Legacy (Streamlit UI kept for reference) ===
 # streamlit
